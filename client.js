@@ -381,6 +381,125 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------------ */
+    /* external intake (lightbox button, other surfaces)                   */
+    /* ------------------------------------------------------------------ */
+
+    const EXTERNAL_EVENT = 'session-ref-board:external-add';
+
+    /** Where an image added from outside the panel lands: centre of the saved view. */
+    function placeExternal(board, item, size) {
+      const natural = Math.max(1, size?.w || 0, size?.h || 0);
+      const factor = Math.min(1, CARD_DEFAULT_MAX / natural);
+      const w = Math.max(CARD_MIN.w, Math.round((size?.w || CARD_DEFAULT_MAX) * factor));
+      const h = Math.max(CARD_MIN.h, Math.round((size?.h || CARD_DEFAULT_MAX * 0.75) * factor));
+      const view = board?.view ?? { x: 0, y: 0, s: 1 };
+      const layers = board?.items?.length ?? 0;
+      const step = (layers % 7) * 22;
+      const cx = (320 - view.x) / view.s + step;
+      const cy = (240 - view.y) / view.s + step;
+      return { ...item, x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h };
+    }
+
+    /**
+     * Copy one image into the session board without the panel being mounted:
+     * upload, read the stored document, append, write back. Pure HTTP, so it also
+     * works while the user is looking at the conversation tab.
+     */
+    async function addExternalImage(sessionId, src, name) {
+      if (!sessionId) throw new Error('先打开一个对话');
+      const blob = await fetchAsBlob(src);
+      if (!isImageLike(blob, name)) throw new Error('这个不是图片');
+      const finalName = name || nameFromSrc(src, blob);
+      const size = await measureBlob(blob);
+      const stored = await uploadBlob(sessionId, blob, finalName);
+      const data = await requestJson('/state', { params: { session: sessionId } });
+      const board = normalizeBoard(data?.board);
+      const placed = placeExternal(board, stored, size);
+      const next = { ...board, items: [...board.items, placed] };
+      await requestJson('/state', { method: 'POST', body: { session: sessionId, board: next } });
+      try {
+        window.dispatchEvent(new CustomEvent(EXTERNAL_EVENT, { detail: { sessionId, item: placed } }));
+      } catch {
+        /* CustomEvent may be unavailable in a probe host */
+      }
+      return placed;
+    }
+
+    /** Tiny self-mounted toast, so the lightbox button can answer without React. */
+    function externalToast(text) {
+      const previous = document.querySelector('.dsh-rb-toast-floating');
+      if (previous) previous.remove();
+      const node = document.createElement('div');
+      node.className = 'dsh-rb-toast-floating';
+      node.textContent = text;
+      document.body.appendChild(node);
+      window.setTimeout(() => node.remove(), 2400);
+    }
+
+    /**
+     * The shipped full-screen image viewer replaces the context menu, so the board
+     * offers its own entry point there: watch the body for that dialog and mount a
+     * button beside its close control.
+     */
+    function installLightboxAction() {
+      const BUTTON = 'dsh-rb-lightbox-add';
+      const DIALOG = 'div[role="dialog"][aria-modal="true"]';
+      const Observer = typeof window === 'undefined' ? undefined : window.MutationObserver;
+      if (typeof document === 'undefined' || typeof Observer !== 'function') return () => {};
+
+      const decorate = (dialog) => {
+        if (dialog.querySelector(`.${BUTTON}`) !== null) return;
+        const image = dialog.querySelector('img');
+        if (image === null) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = BUTTON;
+        button.textContent = '加入画布';
+        button.title = '把这张图放进当前对话的图片集';
+        button.addEventListener('click', async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const live = readActive();
+          if (!live.id) {
+            externalToast('先打开一个对话');
+            return;
+          }
+          button.disabled = true;
+          const label = button.textContent;
+          button.textContent = '加入中…';
+          try {
+            await addExternalImage(live.id, image.currentSrc || image.src);
+            externalToast('已加入图片集');
+          } catch (error) {
+            externalToast(error instanceof Error ? error.message : '没加进去');
+          } finally {
+            button.disabled = false;
+            button.textContent = label;
+          }
+        });
+        dialog.appendChild(button);
+      };
+
+      const scan = (root) => {
+        if (!(root instanceof Element) && root !== document.body) return;
+        for (const dialog of document.querySelectorAll(DIALOG)) if (dialog.contains(root) || root === document.body) decorate(dialog);
+        if (root !== document.body && root.matches?.(DIALOG)) decorate(root);
+      };
+
+      const observer = new Observer((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) if (node.nodeType === 1) scan(node);
+        }
+        if (document.querySelector(`${DIALOG} img`) !== null) {
+          for (const dialog of document.querySelectorAll(DIALOG)) decorate(dialog);
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      scan(document.body);
+      return () => observer.disconnect();
+    }
+
+    /* ------------------------------------------------------------------ */
     /* main component                                                      */
     /* ------------------------------------------------------------------ */
 
@@ -404,6 +523,7 @@ window.__ModuleLoader__.load({
       const [marquee, setMarquee] = useState(null);
       const [panning, setPanning] = useState(false);
       const [editor, setEditor] = useState(null);
+      const [reloadTick, setReloadTick] = useState(0);
 
       const rootRef = useRef(null);
       const fileInputRef = useRef(null);
@@ -483,6 +603,17 @@ window.__ModuleLoader__.load({
         return () => {
           cancelled = true;
         };
+      }, [sessionId, reloadTick]);
+
+      /** Images added from the lightbox are written straight to the document; pick them up. */
+      useEffect(() => {
+        const onExternal = (event) => {
+          const target = event?.detail?.sessionId;
+          if (target && sessionId && target !== sessionId) return;
+          setReloadTick((value) => value + 1);
+        };
+        window.addEventListener(EXTERNAL_EVENT, onExternal);
+        return () => window.removeEventListener(EXTERNAL_EVENT, onExternal);
       }, [sessionId]);
 
       const persist = useCallback(
@@ -2324,6 +2455,32 @@ window.__ModuleLoader__.load({
   background: color-mix(in srgb, var(--we-chat-surface-tint, var(--dsw-alias-bg-overlay, #232327)) 92%, transparent);
   border: 1px solid var(--dsw-alias-border-l1, rgba(255,255,255,.13));
 }
+.dsh-rb-toast-floating {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+  padding: 7px 15px; border-radius: 99px; font-size: 12px; line-height: 1.45;
+  z-index: 2147483000; pointer-events: none;
+  color: var(--dsw-alias-label-primary, #ececef);
+  background: color-mix(in srgb, var(--we-chat-surface-tint, var(--dsw-alias-bg-overlay, #232327)) 94%, transparent);
+  border: 1px solid var(--dsw-alias-border-l1, rgba(255,255,255,.14));
+  box-shadow: 0 10px 28px rgba(0,0,0,.28);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+.dsh-rb-lightbox-add {
+  position: fixed; top: 72px; right: 24px; z-index: 2147482000;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 14px; border-radius: 99px; cursor: pointer;
+  font: inherit; font-size: 12.5px; line-height: 1;
+  color: var(--dsw-alias-label-primary, #ececef);
+  background: color-mix(in srgb, var(--we-chat-surface-tint, var(--dsw-alias-bg-overlay, #232327)) 82%, transparent);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.18));
+  box-shadow: 0 8px 22px rgba(0,0,0,.26);
+  backdrop-filter: blur(14px) saturate(1.25);
+}
+.dsh-rb-lightbox-add:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 60%, var(--dsw-alias-border-l2, rgba(255,255,255,.18)));
+  color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+.dsh-rb-lightbox-add:disabled { opacity: .6; cursor: default; }
 
 .dsh-rb-panel {
   position: fixed; display: flex; flex-direction: column; pointer-events: auto;
@@ -2615,6 +2772,7 @@ window.__ModuleLoader__.load({
           document.addEventListener('contextmenu', onContextMenu, true);
           return () => document.removeEventListener('contextmenu', onContextMenu, true);
         }, 'session-ref-board external context menu');
+        ctx.effect(() => installLightboxAction(), 'session-ref-board lightbox action');
 
         ctx.effect(
           () =>

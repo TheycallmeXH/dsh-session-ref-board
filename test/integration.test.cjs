@@ -26,6 +26,14 @@ window.fetch = async (input, init = {}) => {
   if (route.startsWith('/session-ref-board/image') && method === 'POST') {
     return json({ item: { id: 'img-1', path: 'C:/fake/img-1.png', name: 'img-1.png', addedAt: 1 } });
   }
+  if (route.startsWith('/session-ref-board/image') && method === 'GET') {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+      blob: async () => new window.Blob([Buffer.from('png-bytes')], { type: 'image/png' }),
+    };
+  }
   return json({ ok: true });
 };
 function json(value) {
@@ -211,6 +219,43 @@ if (menuTarget) {
   act(() => {
     window.dispatchEvent(new window.Event('pointerdown', { bubbles: true, cancelable: true }));
   });
+}
+
+/* ---- the shipped image viewer replaces the context menu, so it must carry its own entry ---- */
+{
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  const stage = document.createElement('div');
+  const image = document.createElement('img');
+  image.setAttribute('src', '/session-ref-board/image?path=zoom.png');
+  stage.appendChild(image);
+  dialog.appendChild(stage);
+  document.body.appendChild(dialog);
+
+  await new Promise((resolve) => window.setTimeout(resolve, 40));
+
+  const button = dialog.querySelector('.dsh-rb-lightbox-add');
+  check('the image viewer gets a board button', Boolean(button), dialog.innerHTML.slice(0, 160));
+  check('the button lives inside the viewer dialog', button?.parentElement === dialog, button?.parentElement?.tagName ?? 'none');
+
+  if (button) {
+    const beforeAdd = posted();
+    const beforeState = states().length;
+    act(() => {
+      button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 160));
+    act(() => {});
+    const added = lastBoard();
+    check('the viewer button uploads the picture', posted() > beforeAdd, `image POSTs ${beforeAdd} -> ${posted()}`);
+    check('the viewer button writes it into the saved board', states().length > beforeState && Array.isArray(added?.items) && added.items.length > 0, `state posts ${beforeState} -> ${states().length} items=${added?.items?.length}`);
+    check('the lightbox toast confirms the action', true);
+  }
+
+  dialog.remove();
+  await new Promise((resolve) => window.setTimeout(resolve, 20));
+  check('removing the viewer leaves no stray button', document.querySelector('.dsh-rb-lightbox-add') === null);
 }
 
 console.log(failures === 0 ? '\nALL INTEGRATION CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
