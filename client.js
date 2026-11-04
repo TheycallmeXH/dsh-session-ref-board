@@ -2468,8 +2468,8 @@ window.__ModuleLoader__.load({
 .dsh-rb-lightbox-add {
   position: fixed; top: 72px; right: 24px; z-index: 2147482000;
   display: inline-flex; align-items: center; gap: 6px;
-  height: 32px; padding: 0 14px; border-radius: 99px; cursor: pointer;
-  font: inherit; font-size: 12.5px; line-height: 1;
+  height: 40px; padding: 0 20px; border-radius: 99px; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 500;
   color: var(--dsw-alias-label-primary, #ececef);
   background: color-mix(in srgb, var(--we-chat-surface-tint, var(--dsw-alias-bg-overlay, #232327)) 82%, transparent);
   border: 1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.18));
