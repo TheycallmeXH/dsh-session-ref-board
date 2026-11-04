@@ -2466,7 +2466,7 @@ window.__ModuleLoader__.load({
   backdrop-filter: blur(12px) saturate(1.2);
 }
 .dsh-rb-lightbox-add {
-  position: fixed; top: 72px; right: 24px; z-index: 2147482000;
+  position: fixed; top: 50%; right: 24px; transform: translateY(-50%); z-index: 2147482000;
   display: inline-flex; align-items: center; gap: 6px;
   height: 40px; padding: 0 20px; border-radius: 99px; cursor: pointer;
   font: inherit; font-size: 14px; font-weight: 500;
