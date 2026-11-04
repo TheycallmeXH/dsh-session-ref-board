@@ -1,0 +1,53 @@
+{
+  "name": "@local/session-ref-board",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PureRef-style infinite image reference canvas for DSH conversations.",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "pureref",
+    "reference-board",
+    "image-board",
+    "moodboard",
+    "canvas"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheycallmeXH/dsh-session-ref-board.git"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "test": "node test/host.test.mjs && node test/slot.test.cjs && node test/mount.test.cjs && node test/integration.test.cjs && node test/dep-order.test.cjs && node test/menu-placement.test.cjs",
+    "test:host": "node test/host.test.mjs",
+    "test:slot": "node test/slot.test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-session"]
+    }
+  }
+}

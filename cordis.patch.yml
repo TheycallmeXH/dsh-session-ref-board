@@ -1,0 +1,3 @@
+- insert:
+    - id: session-ref-board
+      name: '@local/session-ref-board'
