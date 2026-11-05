@@ -296,7 +296,9 @@ check('menus survive their own pointerdown and are not clipped by the panel', ()
   if (!/closest\('\.dsh-rb-menu'\)/.test(source)) throw new Error('the window-level menu close handler does not spare the menu itself');
   if (!/backdrop-filter: none !important/.test(css)) throw new Error('the inline panel still establishes a containing block, so the fixed menu gets clipped');
   if (!/\.dsh-rb-menu \{[^}]*z-index:\s*140/.test(css)) throw new Error('menu z-index is below the surrounding chrome');
-  if (!/onClick: \(\) => \{[\s\S]{0,120}action\.run\(\)/.test(source)) throw new Error('menu items do not invoke their action');
+  if (!/const runAction = useCallback\(\(action\) => \{[\s\S]{0,200}action\.run\(\)/.test(source)) throw new Error('menu items do not invoke their action');
+  if (!/Array\.isArray\(action\.children\)/.test(source)) throw new Error('long menus are not folded into submenus');
+  if (!/\.dsh-rb-submenu \{ z-index: 150/.test(css)) throw new Error('the submenu does not sit above its parent menu');
 });
 
 console.log('');

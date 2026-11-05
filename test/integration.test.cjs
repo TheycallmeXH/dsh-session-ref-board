@@ -221,6 +221,53 @@ if (menuTarget) {
   });
 }
 
+/* ---- the blank-area menu must stay short enough to fit, folding long groups into submenus ---- */
+if (menuTarget) {
+  const blank = new window.MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, clientX: 40, clientY: 40,
+  });
+  act(() => { menuTarget.dispatchEvent(blank); });
+  const menu = document.querySelector('.dsh-rb-menu');
+  const topItems = Array.from(document.querySelectorAll('.dsh-rb-menu .dsh-rb-menu-item'));
+  check('the panel menu fits in one screen', Boolean(menu) && topItems.length <= 18, `items=${topItems.length}`);
+  check('arrange actions are folded into a submenu', !topItems.some((node) => String(node.textContent).includes('网格整理')), topItems.map((node) => node.textContent).join(' | ').slice(0, 200));
+  const arrangeRow = topItems.find((node) => String(node.textContent).replace('›', '').trim() === '排列');
+  check('the submenu parent is present with a caret', Boolean(arrangeRow) && arrangeRow.textContent.includes('›'), arrangeRow?.textContent ?? 'missing');
+  if (arrangeRow) {
+    act(() => {
+      arrangeRow.dispatchEvent(new window.MouseEvent('pointerover', { bubbles: true, cancelable: true }));
+      arrangeRow.dispatchEvent(new window.MouseEvent('pointerenter', { bubbles: false, cancelable: true }));
+    });
+    const submenu = document.querySelector('.dsh-rb-submenu');
+    const subItems = Array.from(document.querySelectorAll('.dsh-rb-submenu .dsh-rb-menu-item'));
+    check('hovering the parent opens its submenu', Boolean(submenu) && subItems.length >= 9, `sub items=${subItems.length}`);
+    if (submenu) {
+      const left = Number.parseFloat(submenu.style.left);
+      const top = Number.parseFloat(submenu.style.top);
+      check('the submenu is placed inside the viewport', left >= 0 && top >= 0, `left=${left} top=${top}`);
+    }
+    const arrange = subItems.find((node) => String(node.textContent).includes('左对齐'));
+    check('the submenu lists the arrange modes', Boolean(arrange), subItems.map((node) => node.textContent).join(' | ').slice(0, 160));
+    const bgRow = topItems.find((node) => String(node.textContent).replace('›', '').trim() === '背景');
+    if (bgRow) {
+      act(() => {
+        bgRow.dispatchEvent(new window.MouseEvent('pointerover', { bubbles: true, cancelable: true }));
+        bgRow.dispatchEvent(new window.MouseEvent('pointerenter', { bubbles: false, cancelable: true }));
+      });
+    }
+    const bgSubItems = Array.from(document.querySelectorAll('.dsh-rb-submenu .dsh-rb-menu-item'));
+    const bgItem = bgSubItems.find((node) => String(node.textContent).includes('中性灰'));
+    check('a second submenu replaces the first', Boolean(bgItem), bgSubItems.map((node) => node.textContent).join(' | ').slice(0, 160));
+    if (bgItem) {
+      const beforeArrange = states().length;
+      act(() => { bgItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
+      await new Promise((resolve) => window.setTimeout(resolve, SAVE_WAIT));
+      act(() => {});
+      check('a submenu action runs and closes both menus', states().length > beforeArrange && document.querySelector('.dsh-rb-menu') === null, `posts ${beforeArrange} -> ${states().length}`);
+    }
+  }
+}
+
 /* ---- the shipped image viewer replaces the context menu, so it must carry its own entry ---- */
 {
   const dialog = document.createElement('div');

@@ -514,6 +514,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(0);
       const [notice, setNotice] = useState('');
       const [menu, setMenu] = useState(null);
+      const [sub, setSub] = useState(null);
       const [menuBox, setMenuBox] = useState({ left: 0, top: 0, ready: false });
       const menuRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
@@ -1892,6 +1893,33 @@ window.__ModuleLoader__.load({
         ));
       }, [menu]);
 
+      useEffect(() => {
+        if (menu === null) setSub(null);
+      }, [menu]);
+
+      /** Long menus fold into submenus; place the child beside its row, flipped when it would overflow. */
+      const openSub = useCallback((event, action) => {
+        if (!Array.isArray(action?.children)) {
+          setSub(null);
+          return;
+        }
+        const rows = action.children.filter((child) => !child.separator).length;
+        const width = 196;
+        const height = Math.min(window.innerHeight - 16, rows * 28 + 14);
+        const rect = event.currentTarget.getBoundingClientRect();
+        let left = rect.right + 2;
+        if (left + width > window.innerWidth - 8) left = Math.max(8, rect.left - width - 2);
+        let top = Math.max(8, rect.top - 6);
+        if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+        setSub({ left, top, items: action.children });
+      }, []);
+
+      const runAction = useCallback((action) => {
+        setSub(null);
+        setMenu(null);
+        Promise.resolve(action.run()).catch(() => {});
+      }, []);
+
       const menuActions = useMemo(() => {
         if (menu === null) return [];
         if (menu.kind === 'external') {
@@ -1959,16 +1987,20 @@ window.__ModuleLoader__.load({
             },
           },
           { separator: true },
-          { label: '网格整理', run: () => arrange('grid') },
-          { label: '横向排列', run: () => arrange('row') },
-          { label: '纵向排列', run: () => arrange('column') },
-          { label: '左对齐', run: () => arrange('left') },
-          { label: '上对齐', run: () => arrange('top') },
-          { label: '水平居中', run: () => arrange('centerH') },
-          { label: '垂直居中', run: () => arrange('centerV') },
-          { label: '水平等距', run: () => arrange('distributeH') },
-          { label: '垂直等距', run: () => arrange('distributeV') },
-          { separator: true },
+          {
+            label: '排列',
+            children: [
+              { label: '网格整理', run: () => arrange('grid') },
+              { label: '横向排列', run: () => arrange('row') },
+              { label: '纵向排列', run: () => arrange('column') },
+              { label: '左对齐', run: () => arrange('left') },
+              { label: '上对齐', run: () => arrange('top') },
+              { label: '水平居中', run: () => arrange('centerH') },
+              { label: '垂直居中', run: () => arrange('centerV') },
+              { label: '水平等距', run: () => arrange('distributeH') },
+              { label: '垂直等距', run: () => arrange('distributeV') },
+            ],
+          },
           { label: '组合 (G)', run: () => groupSelection() },
           { label: '取消组合', run: () => ungroupSelection() },
           { separator: true },
@@ -1976,16 +2008,27 @@ window.__ModuleLoader__.load({
           { label: '适应选中 (Shift+F)', run: () => fitSelection() },
           { label: '回到原点 100%', run: () => persistView({ x: 0, y: 0, s: 1 }) },
           { separator: true },
-          { label: '导出画布 PNG…', run: () => exportArea() },
-          { label: '导出可见区域 PNG…', run: () => exportPng('view') },
-          { label: '导出 2 倍图 PNG…', run: () => exportArea({ mult: 2 }) },
-          { label: '导出 JPG…', run: () => exportArea({ type: 'image/jpeg' }) },
-          { label: '导出项目 JSON…', run: () => exportProject() },
-          { label: '导入项目 JSON…', run: () => importProject() },
-          { label: '背景：深灰', run: () => commit((current) => ({ ...current, bg: '#26262b' }), true) },
-          { label: '背景：中性灰', run: () => commit((current) => ({ ...current, bg: '#5a5a60' }), true) },
-          { label: '背景：浅色', run: () => commit((current) => ({ ...current, bg: '#e9e9ec' }), true) },
-          { label: '背景：跟随主题', run: () => commit((current) => ({ ...current, bg: '' }), true) },
+          {
+            label: '导出',
+            children: [
+              { label: '画布 PNG…', run: () => exportArea() },
+              { label: '可见区域 PNG…', run: () => exportPng('view') },
+              { label: '2 倍图 PNG…', run: () => exportArea({ mult: 2 }) },
+              { label: 'JPG…', run: () => exportArea({ type: 'image/jpeg' }) },
+              { separator: true },
+              { label: '导出项目 JSON…', run: () => exportProject() },
+              { label: '导入项目 JSON…', run: () => importProject() },
+            ],
+          },
+          {
+            label: '背景',
+            children: [
+              { label: '深灰', run: () => commit((current) => ({ ...current, bg: '#26262b' }), true) },
+              { label: '中性灰', run: () => commit((current) => ({ ...current, bg: '#5a5a60' }), true) },
+              { label: '浅色', run: () => commit((current) => ({ ...current, bg: '#e9e9ec' }), true) },
+              { label: '跟随主题', run: () => commit((current) => ({ ...current, bg: '' }), true) },
+            ],
+          },
           { separator: true },
           { label: '撤销 (Ctrl+Z)', run: () => undo() },
           { label: '重做 (Ctrl+Shift+Z)', run: () => redo() },
@@ -2315,11 +2358,41 @@ window.__ModuleLoader__.load({
                   {
                     key: action.label,
                     type: 'button',
-                    className: 'dsh-rb-menu-item',
-                    onClick: () => {
-                      setMenu(null);
-                      Promise.resolve(action.run()).catch(() => {});
+                    className: Array.isArray(action.children) ? 'dsh-rb-menu-item is-sub' : 'dsh-rb-menu-item',
+                    onPointerEnter: (event) => openSub(event, action),
+                    onClick: (event) => {
+                      if (Array.isArray(action.children)) {
+                        openSub(event, action);
+                        return;
+                      }
+                      runAction(action);
                     },
+                  },
+                  action.label,
+                  Array.isArray(action.children) ? h('span', { className: 'dsh-rb-menu-caret' }, '›') : null,
+                ),
+            ),
+          ),
+        sub === null || menu === null
+          ? null
+          : h(
+            'div',
+            {
+              className: 'dsh-rb-menu dsh-rb-submenu',
+              style: { left: sub.left, top: sub.top, maxHeight: Math.max(140, window.innerHeight - 16) },
+              onPointerDown: (event) => event.stopPropagation(),
+              onContextMenu: (event) => event.preventDefault(),
+            },
+            sub.items.map((action, index) =>
+              action.separator
+                ? h('div', { key: `ss${index}`, className: 'dsh-rb-menu-sep' })
+                : h(
+                  'button',
+                  {
+                    key: action.label,
+                    type: 'button',
+                    className: 'dsh-rb-menu-item',
+                    onClick: () => runAction(action),
                   },
                   action.label,
                 ),
@@ -2671,6 +2744,12 @@ window.__ModuleLoader__.load({
 .dsh-rb-menu-item:hover {
   background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 22%, transparent);
 }
+.dsh-rb-menu-item.is-sub {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.dsh-rb-menu-caret { opacity: .5; font-size: 13px; line-height: 1; }
+.dsh-rb-submenu { z-index: 150; }
+.dsh-rb-submenu .dsh-rb-menu-item { font-size: 12px; }
 .dsh-rb-menu-sep {
   height: 1px; margin: 4px 6px;
   background: color-mix(in srgb, var(--dsw-alias-border-l1, rgba(255,255,255,.1)) 90%, transparent);
