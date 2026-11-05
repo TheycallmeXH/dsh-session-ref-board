@@ -35,6 +35,9 @@ window.__ModuleLoader__.load({
     const MAX_ZOOM = 8;
     const CARD_MIN = { w: 40, h: 30 };
     const CARD_DEFAULT_MAX = 340;
+    /** Corner → direction the card grows. `nw` means dragging up-left enlarges. */
+    const CORNER_SIGNS = { se: [1, 1], sw: [-1, 1], ne: [1, -1], nw: [-1, -1] };
+    const CORNER_CURSOR = { se: 'nwse-resize', nw: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
     const SAVE_DELAY = 400;
     const IMAGE_EXT_RE = /\.(png|jpe?g|jfif|webp|gif|bmp|avif|svg|ico|tiff?|heic|heif)$/i;
 
@@ -1553,30 +1556,79 @@ window.__ModuleLoader__.load({
         [commit, flush, itemsOf, pushHistory, pushToComposer, startPan, updateLocal],
       );
 
+      /** Keeps a label's geometry in step with its type size, so `字号 +/-` behaves like corner scaling. */
+      const bumpFont = useCallback(
+        (item, delta) => {
+          const before = item.fontSize || 15;
+          const after = Math.round(Math.min(160, Math.max(8, before + delta)));
+          if (after === before) return;
+          const factor = after / before;
+          commit((current) => ({
+            ...current,
+            items: current.items.map((entry) => (entry.id === item.id
+              ? {
+                ...entry,
+                fontSize: after,
+                w: Math.max(CARD_MIN.w, Math.round(entry.w * factor)),
+                h: Math.max(CARD_MIN.h, Math.round(entry.h * factor)),
+              }
+              : entry)),
+          }), true);
+        },
+        [commit],
+      );
+
       const startResize = useCallback(
-        (event, item) => {
+        (event, item, corner = 'se') => {
           if (event.button !== 0) return;
           event.stopPropagation();
+          const signs = CORNER_SIGNS[corner] ?? CORNER_SIGNS.se;
+          const sx = signs[0];
+          const sy = signs[1];
           const start = { x: event.clientX, y: event.clientY };
           const scale = viewRef.current.s;
           const ratio = item.h > 0 ? item.w / item.h : 1;
           const w0 = item.w;
           const h0 = item.h;
+          const x0 = item.x;
+          const y0 = item.y;
+          const isText = item.kind === 'text';
+          const font0 = item.fontSize || 15;
           pushHistory();
           trackPointer(
             event,
             (move) => {
-              const dx = (move.clientX - start.x) / scale;
-              const dy = (move.clientY - start.y) / scale;
-              let w = Math.max(CARD_MIN.w, w0 + dx);
-              let height = Math.max(CARD_MIN.h, w / ratio);
-              if (move.altKey) height = Math.max(CARD_MIN.h, h0 + dy);
-              const nextW = Math.round(w);
-              const nextH = Math.round(height);
+              const dx = ((move.clientX - start.x) / scale) * sx;
+              const dy = ((move.clientY - start.y) / scale) * sy;
+              const free = Boolean(move.altKey);
+              let w;
+              let height;
+              let font = font0;
+              if (isText) {
+                // A text card scales by its type size: dragging any corner zooms the whole label.
+                const byWidth = w0 > 0 ? (w0 + dx) / w0 : 1;
+                const byHeight = h0 > 0 ? (h0 + dy) / h0 : 1;
+                const factor = Math.max(0.2, free ? byHeight : sx !== 0 ? byWidth : byHeight);
+                font = Math.round(Math.min(160, Math.max(8, font0 * factor)));
+                const applied = font / font0;
+                w = Math.max(CARD_MIN.w, Math.round(w0 * applied));
+                height = Math.max(CARD_MIN.h, Math.round(h0 * applied));
+              } else {
+                w = Math.max(CARD_MIN.w, w0 + dx);
+                height = free ? Math.max(CARD_MIN.h, h0 + dy) : Math.max(CARD_MIN.h, w / ratio);
+                w = Math.round(w);
+                height = Math.round(height);
+              }
+              const x = sx < 0 ? x0 + (w0 - w) : x0;
+              const y = sy < 0 ? y0 + (h0 - height) : y0;
               updateLocal((current) => ({
                 ...current,
                 items: current.items.map((entry) =>
-                  entry.id === item.id ? { ...entry, w: nextW, h: nextH } : entry,
+                  entry.id !== item.id
+                    ? entry
+                    : (isText
+                      ? { ...entry, x: Math.round(x), y: Math.round(y), w, h: height, fontSize: font }
+                      : { ...entry, x: Math.round(x), y: Math.round(y), w, h: height }),
                 ),
               }));
             },
@@ -1947,7 +1999,12 @@ window.__ModuleLoader__.load({
         if (menu.kind === 'item') {
           const item = menu.item;
           const head = item.kind === 'text'
-            ? [{ label: '编辑文字', run: () => editText(item) }, { separator: true }]
+            ? [
+              { label: '编辑文字', run: () => editText(item) },
+              { label: '字号 +2', run: () => bumpFont(item, 2) },
+              { label: '字号 −2', run: () => bumpFont(item, -2) },
+              { separator: true },
+            ]
             : [
               { label: '加入输入框', run: () => pushToComposer([item]) },
               { label: '对其提问', run: () => pushToComposer([item], { ask: true }) },
@@ -2054,6 +2111,7 @@ window.__ModuleLoader__.load({
         addText,
         arrange,
         board,
+        bumpFont,
         commit,
         copyPath,
         editText,
@@ -2222,12 +2280,20 @@ window.__ModuleLoader__.load({
                       draggable: false,
                       loading: 'lazy',
                     }),
-                  selection.has(item.id)
-                    ? h('span', {
-                      className: 'dsh-rb-handle',
-                      onPointerDown: (event) => startResize(event, item),
-                    })
-                    : null,
+                  selection.has(item.id) && selection.size === 1
+                    ? ['nw', 'ne', 'sw', 'se'].map((corner) => h('span', {
+                      key: corner,
+                      className: `dsh-rb-handle is-${corner}`,
+                      style: { cursor: CORNER_CURSOR[corner] },
+                      onPointerDown: (event) => startResize(event, item, corner),
+                    }))
+                    : selection.has(item.id)
+                      ? h('span', {
+                        className: 'dsh-rb-handle is-se',
+                        style: { cursor: CORNER_CURSOR.se },
+                        onPointerDown: (event) => startResize(event, item, 'se'),
+                      })
+                      : null,
                   selection.has(item.id) && selection.size === 1
                     ? h('span', {
                       className: 'dsh-rb-rotate',
@@ -2624,11 +2690,25 @@ window.__ModuleLoader__.load({
   box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary, #4d6bfe), 0 6px 18px rgba(0, 0, 0, .3);
 }
 .dsh-rb-handle {
-  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
+  position: absolute; width: 10px; height: 10px; border-radius: 2px;
   background: var(--dsw-alias-brand-primary, #4d6bfe);
-  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  border: 1.5px solid var(--dsw-alias-bg-base, #101013);
+  box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  touch-action: none;
 }
+/* The visible knob is 10px; the grab area is 22px so it never needs pixel hunting. */
+.dsh-rb-handle::before {
+  content: ''; position: absolute; inset: -6px; border-radius: 4px;
+}
+.dsh-rb-handle.is-se { right: -5px; bottom: -5px; }
+.dsh-rb-handle.is-sw { left: -5px; bottom: -5px; }
+.dsh-rb-handle.is-ne { right: -5px; top: -5px; }
+.dsh-rb-handle.is-nw { left: -5px; top: -5px; }
 .dsh-rb-card.is-text { background: transparent; box-shadow: none; }
+.dsh-rb-card.is-text.is-sel {
+  box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary, #4d6bfe);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 9%, transparent);
+}
 .dsh-rb-text {
   width: 100%; height: 100%; overflow: hidden; white-space: pre-wrap; box-sizing: border-box;
   padding: 2px 4px; line-height: 1.4; cursor: move;

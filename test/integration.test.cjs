@@ -174,6 +174,43 @@ const removes = calls.filter((entry) => entry.route.startsWith('/session-ref-boa
 check('Ctrl+A then Delete clears the canvas', Array.isArray(cleared?.items) && cleared.items.length === 0, JSON.stringify(cleared?.items?.length));
 check('deleted images are removed from disk too', removes > 0, `remove calls=${removes}`);
 
+/* ---- a text card must scale by type size, and every corner must drive its own anchor ---- */
+{
+  act(() => { press('t'); });
+  await new Promise((resolve) => window.setTimeout(resolve, SAVE_WAIT));
+  act(() => {});
+  const textItem = (lastBoard()?.items ?? []).find((item) => item.kind === 'text');
+  check('a text object exists to resize', Boolean(textItem), JSON.stringify(lastBoard()?.items ?? []));
+  if (textItem) {
+    const card = Array.from(document.querySelectorAll('.dsh-rb-card')).find((node) => node.textContent.includes(String(textItem.text).slice(0, 4)));
+    act(() => {
+      card?.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 300, clientY: 300 }));
+      window.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    });
+    const handles = Array.from(document.querySelectorAll('.dsh-rb-handle'));
+    check('a selected card exposes four corner handles', handles.length === 4, `handles=${handles.length}: ${handles.map((n) => n.className).join(',')}`);
+    const nw = handles.find((node) => node.className.includes('is-nw'));
+    check('the corners carry their own cursor', Boolean(nw) && String(nw.style.cursor) === 'nwse-resize', nw?.style?.cursor ?? 'missing');
+    if (nw) {
+      const beforeText = lastBoard()?.items?.find((item) => item.id === textItem.id);
+      act(() => {
+        nw.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 100 }));
+        window.dispatchEvent(new window.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        window.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, SAVE_WAIT));
+      act(() => {});
+      const afterText = lastBoard()?.items?.find((item) => item.id === textItem.id);
+      check('dragging a corner outward grows the type', Number(afterText?.fontSize ?? 0) > Number(beforeText?.fontSize ?? 0), `${beforeText?.fontSize} -> ${afterText?.fontSize}`);
+      check('the anchored corner stays put', Number(afterText?.x ?? 1) < Number(beforeText?.x ?? 0) && Number(afterText?.y ?? 1) < Number(beforeText?.y ?? 0), `x ${beforeText?.x}->${afterText?.x} y ${beforeText?.y}->${afterText?.y} :: ${JSON.stringify(afterText)}`);
+      check('the card stays inside its own type scale', Number(afterText?.w ?? 0) === Math.round(Number(beforeText?.w ?? 0) * (Number(afterText?.fontSize ?? 0) / Math.max(1, Number(beforeText?.fontSize ?? 1)))), `w ${beforeText?.w}->${afterText?.w}`);
+    }
+  }
+  act(() => { press('a', { ctrlKey: true }); });
+  act(() => { press('Delete'); });
+  await new Promise((resolve) => window.setTimeout(resolve, SAVE_WAIT));
+}
+
 /* ---- the right-click menu must survive its own pointerdown and run its action ---- */
 const menuTarget = document.querySelector('.dsh-rb-canvas') ?? document.querySelector('.dsh-rb-root');
 if (menuTarget) {

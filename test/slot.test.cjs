@@ -283,7 +283,10 @@ check('canvas architecture: absolute cards inside a transformed stage', () => {
   if (!/className: 'dsh-rb-stage'/.test(source)) throw new Error('stage element not rendered');
   if (!/translate3d\(/.test(source)) throw new Error('stage transform not applied');
   if (!/=> onCardPointerDown\(event, item\)/.test(source)) throw new Error('card drag handler not wired');
-  if (!/=> startResize\(event, item\)/.test(source)) throw new Error('resize handle not wired');
+  if (!/=> startResize\(event, item, corner\)/.test(source)) throw new Error('resize handle not wired');
+  if (!/const CORNER_SIGNS = \{ se: \[1, 1\], sw: \[-1, 1\], ne: \[1, -1\], nw: \[-1, -1\] \}/.test(source)) throw new Error('corner resize directions missing');
+  if (!/fontSize: font \}/.test(source)) throw new Error('text cards do not scale by type size');
+  if (!/const bumpFont = useCallback/.test(source)) throw new Error('labels cannot be re-scaled from the menu');
   if (!/addEventListener\('wheel'/.test(source)) throw new Error('wheel zoom not wired');
   if (!/function trackPointer/.test(source)) throw new Error('pointer tracking helper missing');
   if (!/addEventListener\('drop', onDrop, true\)/.test(source)) throw new Error('board does not intercept file drops before the app-wide overlay');
